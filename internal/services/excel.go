@@ -43,16 +43,129 @@ type ExcelService struct {
 	mu              sync.RWMutex
 	processResults  map[string]*models.ExcelUploadResponse
 	jobs            map[string]*JobResult
+
+	// Worker pool for concurrent job processing
+	jobQueue   chan *JobRequest
+	workerPool chan chan *JobRequest
+	maxWorkers int
+	quit       chan bool
+}
+
+// JobRequest represents a job to be processed
+type JobRequest struct {
+	JobID string
+	File  *multipart.FileHeader
+}
+
+// Worker represents a worker that processes jobs
+type Worker struct {
+	id         int
+	jobQueue   chan *JobRequest
+	workerPool chan chan *JobRequest
+	quit       chan bool
+	service    *ExcelService
 }
 
 // NewExcelService creates a new Excel service
 func NewExcelService(employeeService *EmployeeService, cfg *config.Config) *ExcelService {
-	return &ExcelService{
+	// Get max workers from config, default to 5
+	maxWorkers := 5
+	if cfg.Server.MaxWorkers > 0 {
+		maxWorkers = cfg.Server.MaxWorkers
+	}
+
+	// Queue size should be 10-20x the worker count
+	queueSize := maxWorkers * 20
+
+	service := &ExcelService{
 		employeeService: employeeService,
 		config:          cfg,
 		processResults:  make(map[string]*models.ExcelUploadResponse),
 		jobs:            make(map[string]*JobResult),
+		jobQueue:        make(chan *JobRequest, queueSize),
+		workerPool:      make(chan chan *JobRequest, maxWorkers),
+		maxWorkers:      maxWorkers,
+		quit:            make(chan bool),
 	}
+
+	log.Printf("Starting Excel processing service with %d workers and queue size %d", maxWorkers, queueSize)
+
+	// Start worker pool
+	service.startWorkerPool()
+
+	return service
+}
+
+// startWorkerPool initializes and starts the worker pool
+func (s *ExcelService) startWorkerPool() {
+	// Create workers
+	for i := 0; i < s.maxWorkers; i++ {
+		worker := &Worker{
+			id:         i + 1,
+			jobQueue:   make(chan *JobRequest),
+			workerPool: s.workerPool,
+			quit:       make(chan bool),
+			service:    s,
+		}
+		worker.start()
+	}
+
+	// Start dispatcher
+	go s.dispatch()
+}
+
+// dispatch manages job distribution to workers
+func (s *ExcelService) dispatch() {
+	for {
+		select {
+		case job := <-s.jobQueue:
+			select {
+			case jobQueue := <-s.workerPool:
+				jobQueue <- job
+			case <-time.After(5 * time.Second):
+				log.Printf("Timeout waiting for available worker for job %s", job.JobID)
+				s.updateJobStatus(job.JobID, JobStatusFailed, nil, "timeout waiting for available worker")
+			}
+		case <-s.quit:
+			log.Println("Stopping dispatcher...")
+			return
+		}
+	}
+}
+
+// start begins worker processing
+func (w *Worker) start() {
+	go func() {
+		for {
+			// Register worker in pool
+			w.workerPool <- w.jobQueue
+
+			select {
+			case job := <-w.jobQueue:
+				log.Printf("Worker %d processing job %s", w.id, job.JobID)
+				w.service.processJobRequest(job)
+			case <-w.quit:
+				log.Printf("Worker %d stopping...", w.id)
+				return
+			}
+		}
+	}()
+}
+
+// processJobRequest processes a job request
+func (s *ExcelService) processJobRequest(job *JobRequest) {
+	// Update job status to running
+	s.updateJobStatus(job.JobID, JobStatusRunning, nil, "")
+
+	// Process the Excel file
+	result, err := s.ProcessExcelFile(job.File)
+
+	if err != nil {
+		s.updateJobStatus(job.JobID, JobStatusFailed, nil, err.Error())
+		return
+	}
+
+	s.updateJobStatus(job.JobID, JobStatusCompleted, result, "")
 }
 
 // StartAsyncExcelProcessing starts async processing of an Excel file
@@ -77,8 +190,20 @@ func (s *ExcelService) StartAsyncExcelProcessing(file *multipart.FileHeader) (st
 	s.jobs[jobID] = job
 	s.mu.Unlock()
 
-	// Start processing in background
-	go s.processExcelAsync(jobID, file)
+	// Queue job for processing by worker pool
+	jobRequest := &JobRequest{
+		JobID: jobID,
+		File:  file,
+	}
+
+	select {
+	case s.jobQueue <- jobRequest:
+		log.Printf("Job %s queued for processing", jobID)
+	default:
+		// Queue is full
+		s.updateJobStatus(jobID, JobStatusFailed, nil, "job queue is full, please try again later")
+		return "", fmt.Errorf("job queue is full, please try again later")
+	}
 
 	return jobID, nil
 }
@@ -94,22 +219,6 @@ func (s *ExcelService) GetJobStatus(jobID string) (*JobResult, error) {
 	}
 
 	return job, nil
-}
-
-// processExcelAsync processes Excel file asynchronously
-func (s *ExcelService) processExcelAsync(jobID string, file *multipart.FileHeader) {
-	// Update job status to running
-	s.updateJobStatus(jobID, JobStatusRunning, nil, "")
-
-	// Process the Excel file
-	result, err := s.ProcessExcelFile(file)
-
-	if err != nil {
-		s.updateJobStatus(jobID, JobStatusFailed, nil, err.Error())
-		return
-	}
-
-	s.updateJobStatus(jobID, JobStatusCompleted, result, "")
 }
 
 // updateJobStatus updates the status of a job

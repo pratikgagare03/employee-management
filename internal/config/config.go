@@ -45,6 +45,7 @@ type ServerConfig struct {
 	ReadTimeout  time.Duration
 	WriteTimeout time.Duration
 	MaxFileSize  int64 // Maximum upload file size in bytes
+	MaxWorkers   int   // Maximum concurrent Excel processing workers
 }
 
 // Load loads configuration from environment variables with defaults
@@ -81,6 +82,7 @@ func Load() *Config {
 			ReadTimeout:  getEnvAsDuration("SERVER_READ_TIMEOUT", 30*time.Second),
 			WriteTimeout: getEnvAsDuration("SERVER_WRITE_TIMEOUT", 30*time.Second),
 			MaxFileSize:  getEnvAsInt64("MAX_FILE_SIZE", 10*1024*1024), // 10MB default
+			MaxWorkers:   getEnvAsInt("MAX_WORKERS", 5),                // 5 workers default
 		},
 	}
 }
