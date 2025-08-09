@@ -37,7 +37,7 @@ func main() {
 	// Initialize services
 	employeeRepo := database.NewEmployeeRepository(db)
 	employeeService := services.NewEmployeeService(employeeRepo, cache)
-	excelService := services.NewExcelService(employeeService)
+	excelService := services.NewExcelService(employeeService, cfg)
 	employeeHandler := handlers.NewEmployeeHandler(employeeService, excelService)
 
 	// Setup router
@@ -66,6 +66,12 @@ func setupRoutes(employeeHandler *handlers.EmployeeHandler) *gin.Engine {
 			employees.GET("/:id", employeeHandler.GetEmployee)
 			employees.PUT("/:id", employeeHandler.UpdateEmployee)
 			employees.DELETE("/:id", employeeHandler.DeleteEmployee)
+		}
+
+		// Job status routes
+		jobs := api.Group("/jobs")
+		{
+			jobs.GET("/:id", employeeHandler.GetJobStatus)
 		}
 	}
 

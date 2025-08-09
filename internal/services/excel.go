@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"employee-management/internal/config"
 	"employee-management/internal/models"
 	"fmt"
 	"io"
@@ -9,22 +10,118 @@ import (
 	"mime/multipart"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
 )
+
+// JobStatus represents the status of an async job
+type JobStatus string
+
+const (
+	JobStatusPending   JobStatus = "pending"
+	JobStatusRunning   JobStatus = "running"
+	JobStatusCompleted JobStatus = "completed"
+	JobStatusFailed    JobStatus = "failed"
+)
+
+// JobResult represents the result of an async job
+type JobResult struct {
+	ID        string                      `json:"id"`
+	Status    JobStatus                   `json:"status"`
+	Result    *models.ExcelUploadResponse `json:"result,omitempty"`
+	Error     string                      `json:"error,omitempty"`
+	CreatedAt time.Time                   `json:"created_at"`
+	UpdatedAt time.Time                   `json:"updated_at"`
+}
 
 // ExcelService handles Excel file processing
 type ExcelService struct {
 	employeeService *EmployeeService
+	config          *config.Config
 	mu              sync.RWMutex
 	processResults  map[string]*models.ExcelUploadResponse
+	jobs            map[string]*JobResult
 }
 
 // NewExcelService creates a new Excel service
-func NewExcelService(employeeService *EmployeeService) *ExcelService {
+func NewExcelService(employeeService *EmployeeService, cfg *config.Config) *ExcelService {
 	return &ExcelService{
 		employeeService: employeeService,
+		config:          cfg,
 		processResults:  make(map[string]*models.ExcelUploadResponse),
+		jobs:            make(map[string]*JobResult),
+	}
+}
+
+// StartAsyncExcelProcessing starts async processing of an Excel file
+func (s *ExcelService) StartAsyncExcelProcessing(file *multipart.FileHeader) (string, error) {
+	// Validate file first
+	if err := s.validateExcelFile(file); err != nil {
+		return "", fmt.Errorf("file validation failed: %w", err)
+	}
+
+	// Generate job ID
+	jobID := uuid.New().String()
+
+	// Create job record
+	job := &JobResult{
+		ID:        jobID,
+		Status:    JobStatusPending,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
+
+	s.mu.Lock()
+	s.jobs[jobID] = job
+	s.mu.Unlock()
+
+	// Start processing in background
+	go s.processExcelAsync(jobID, file)
+
+	return jobID, nil
+}
+
+// GetJobStatus returns the status of a job
+func (s *ExcelService) GetJobStatus(jobID string) (*JobResult, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	job, exists := s.jobs[jobID]
+	if !exists {
+		return nil, fmt.Errorf("job not found")
+	}
+
+	return job, nil
+}
+
+// processExcelAsync processes Excel file asynchronously
+func (s *ExcelService) processExcelAsync(jobID string, file *multipart.FileHeader) {
+	// Update job status to running
+	s.updateJobStatus(jobID, JobStatusRunning, nil, "")
+
+	// Process the Excel file
+	result, err := s.ProcessExcelFile(file)
+
+	if err != nil {
+		s.updateJobStatus(jobID, JobStatusFailed, nil, err.Error())
+		return
+	}
+
+	s.updateJobStatus(jobID, JobStatusCompleted, result, "")
+}
+
+// updateJobStatus updates the status of a job
+func (s *ExcelService) updateJobStatus(jobID string, status JobStatus, result *models.ExcelUploadResponse, errorMsg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if job, exists := s.jobs[jobID]; exists {
+		job.Status = status
+		job.Result = result
+		job.Error = errorMsg
+		job.UpdatedAt = time.Now()
 	}
 }
 
@@ -130,8 +227,8 @@ func (s *ExcelService) ProcessExcelFile(file *multipart.FileHeader) (*models.Exc
 
 // validateExcelFile validates the uploaded Excel file
 func (s *ExcelService) validateExcelFile(file *multipart.FileHeader) error {
-	// Check file size (max 10MB as configured)
-	maxSize := int64(10 * 1024 * 1024) // 10MB
+	// Check file size using config value
+	maxSize := s.config.Server.MaxFileSize
 	if file.Size > maxSize {
 		return fmt.Errorf("file size %d bytes exceeds maximum allowed size %d bytes", file.Size, maxSize)
 	}
@@ -288,17 +385,9 @@ func (s *ExcelService) parseEmployeeFromRow(row []string, headerMap map[string]i
 		})
 	}
 
-	// Additional business validations
-	if employee.Email != "" {
-		// Check if email already exists (this is expensive, but necessary for data integrity)
-		existingEmployee, err := s.employeeService.repo.GetEmployeeByEmail(employee.Email)
-		if err == nil && existingEmployee != nil {
-			validationErrors = append(validationErrors, models.ValidationError{
-				Field:   fmt.Sprintf("Row %d - Email", rowNumber),
-				Message: fmt.Sprintf("Email '%s' already exists in database", employee.Email),
-			})
-		}
-	}
+	// Note: We don't check for duplicate emails here during parsing.
+	// The database layer will handle duplicates during batch insert,
+	// which is more efficient and provides proper skip behavior.
 
 	if len(validationErrors) > 0 {
 		return nil, validationErrors

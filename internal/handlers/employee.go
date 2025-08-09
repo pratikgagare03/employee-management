@@ -23,7 +23,7 @@ func NewEmployeeHandler(employeeService *services.EmployeeService, excelService 
 	}
 }
 
-// UploadExcel handles Excel file upload and processing
+// UploadExcel handles Excel file upload and async processing
 // POST /api/employees/upload
 func (h *EmployeeHandler) UploadExcel(c *gin.Context) {
 	// Parse multipart form
@@ -38,11 +38,11 @@ func (h *EmployeeHandler) UploadExcel(c *gin.Context) {
 		return
 	}
 
-	// Process Excel file
-	response, err := h.excelService.ProcessExcelFile(file)
+	// Start async processing
+	jobID, err := h.excelService.StartAsyncExcelProcessing(file)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.ErrorResponse{
-			Error: "Failed to process Excel file",
+			Error: "Failed to start Excel processing",
 			Details: []models.ValidationError{
 				{Field: "file", Message: err.Error()},
 			},
@@ -50,10 +50,11 @@ func (h *EmployeeHandler) UploadExcel(c *gin.Context) {
 		return
 	}
 
-	// Return success response
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data":    response,
+	c.JSON(http.StatusAccepted, gin.H{
+		"success":    true,
+		"message":    "Excel file processing started",
+		"job_id":     jobID,
+		"status_url": "/api/jobs/" + jobID,
 	})
 }
 
@@ -79,6 +80,28 @@ func (h *EmployeeHandler) ValidateExcel(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    response,
+	})
+}
+
+// GetJobStatus retrieves the status of an async job
+// GET /api/jobs/:id
+func (h *EmployeeHandler) GetJobStatus(c *gin.Context) {
+	jobID := c.Param("id")
+
+	jobResult, err := h.excelService.GetJobStatus(jobID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, models.ErrorResponse{
+			Error: "Job not found",
+			Details: []models.ValidationError{
+				{Field: "job_id", Message: err.Error()},
+			},
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"data":    jobResult,
 	})
 }
 
