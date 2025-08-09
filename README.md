@@ -78,12 +78,35 @@ FLUSH PRIVILEGES;
 go run cmd/main.go
 ```
 
+## Running with Docker
+
+If you have Docker installed, you can use the provided Makefile commands to build and run the application:
+
+- Build the Docker image:
+  ```bash
+  make docker-build
+  ```
+- Run the application container:
+  ```bash
+  make docker-run
+  ```
+
+Alternatively, use Docker Compose to start the full service stack (MySQL, Redis, and the app):
+```bash
+make docker-compose-up
+```
+
+To stop and clean up all containers and resources:
+```bash
+make docker-compose-down
+```
+
 The server will start on the configured port (default: 8081).
 
 You should see output similar to:
 ```
-🚀 Employee Management Server starting on port 8081
-📋 API Documentation: http://localhost:8081/api/health
+Employee Management Server starting on port 8081
+API Documentation: http://localhost:8081/api/health
 ```
 ## API Reference
 
