@@ -1,0 +1,54 @@
+Golang Assignment:
+Import and Manage Data
+Objective:
+Build a Golang program to import data from an Excel file, store it into MySQL,
+and cache the data in Redis. Create a simple CRUD (Create, Read, Update,
+Delete) system to view imported data, edit records, and update the changes to
+both the database and cache.
+Framework:
+gin
+
+Task:
+Import Excel Data:
+● Upload given excel file with API development tool like postman
+● Parse the data and structure it appropriately.
+● Validate the uploaded Excel file format, ensuring it adheres to specific
+column headers and data types.
+● Implement asynchronous processing for parsing and structuring the
+data to improve scalability.
+Store Data:
+● Connect to MySQL and create a table to store the imported data.
+● Implement a function to insert the parsed data into the MySQL database.
+● Connect to Redis and cache the imported data.
+● Redis cache should expire after 5 minus.
+
+View Imported List:
+● Create an API endpoint or a command-line interface to view imported
+data fetched from Redis. If Redis doesn't have the data, retrieve it from
+the table
+● Display the data in a readable format.
+
+Edit Record:
+● Allow users to edit a specific record.
+● Update the record in both the MySQL database and Redis cache.
+
+Handle Errors and Validation:
+● Implement error handling mechanisms to gracefully handle failures
+during file upload, data parsing, database operations, etc.
+● Validate the uploaded Excel file to ensure it meets the expected format
+and structure.
+Optimization and Scalability:
+● Optimize database queries and Redis operations for better performance.
+● Design the application architecture to scale horizontally to handle
+increased traffic and data volume efficiently.
+
+Submission:
+● Provide the Golang code along with necessary configuration files.
+● Include a README.md with instructions if any
+
+● Note: Ensure that the necessary Golang packages for Excel parsing,
+MySQL, and Redis are used, and all dependencies are clearly
+documented.
+● The code should be well-organized, follow best practices, and include
+error handling mechanisms.
+
