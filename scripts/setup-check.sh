@@ -12,8 +12,9 @@ echo ""
 echo "2. Checking MySQL availability..."
 if command -v mysql &> /dev/null; then
     echo "✅ MySQL client found"
+    echo 'Just press enter when prompted for password'
     # Try to connect (this will prompt for password)
-    mysql -u root -p -e "SELECT 'MySQL connection successful' as status;" 2>/dev/null || echo "❌ MySQL connection failed - please check credentials"
+    sudo mysql -u root -p -e "SELECT 'MySQL connection successful' as status;" 2>/dev/null || echo "❌ MySQL connection failed - please check credentials"
 else
     echo "❌ MySQL not found. Please install MySQL server"
 fi
