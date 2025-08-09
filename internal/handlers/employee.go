@@ -303,7 +303,8 @@ func (h *EmployeeHandler) DeleteEmployee(c *gin.Context) {
 	}
 
 	// Delete employee
-	if err := h.employeeService.DeleteEmployee(id); err != nil {
+	deletedEmployee, err := h.employeeService.DeleteEmployee(id)
+	if err != nil {
 		if err.Error() == "employee with ID "+idStr+" not found" {
 			c.JSON(http.StatusNotFound, models.ErrorResponse{
 				Error: "Employee not found",
@@ -319,6 +320,7 @@ func (h *EmployeeHandler) DeleteEmployee(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Employee deleted successfully",
+		"data":    deletedEmployee,
 	})
 }
 

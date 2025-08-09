@@ -197,20 +197,20 @@ func (s *EmployeeService) UpdateEmployee(id int, updateData *models.Employee) (*
 	return existingEmployee, nil
 }
 
-// DeleteEmployee deletes an employee
-func (s *EmployeeService) DeleteEmployee(id int) error {
-	// Check if employee exists
-	_, err := s.repo.GetEmployeeByID(id)
+// DeleteEmployee deletes an employee and returns the deleted employee data
+func (s *EmployeeService) DeleteEmployee(id int) (*models.EmployeeResponse, error) {
+	// Get employee data before deletion
+	employee, err := s.repo.GetEmployeeByID(id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return fmt.Errorf("employee with ID %d not found", id)
+			return nil, fmt.Errorf("employee with ID %d not found", id)
 		}
-		return fmt.Errorf("failed to get employee: %w", err)
+		return nil, fmt.Errorf("failed to get employee: %w", err)
 	}
 
 	// Delete from database
 	if err := s.repo.DeleteEmployee(id); err != nil {
-		return fmt.Errorf("failed to delete employee: %w", err)
+		return nil, fmt.Errorf("failed to delete employee: %w", err)
 	}
 
 	// Remove from cache
@@ -223,7 +223,9 @@ func (s *EmployeeService) DeleteEmployee(id int) error {
 		log.Printf("Warning: Failed to invalidate employee list cache: %v", err)
 	}
 
-	return nil
+	// Return the deleted employee data
+	response := employee.ToResponse()
+	return &response, nil
 }
 
 // SearchEmployees searches employees by query
