@@ -244,3 +244,17 @@ redis-cli ping
 lsof -i :8081
 # Change port in .env file if needed
 ```
+
+## 📬 Postman Collection
+
+You can use the following Postman collection to test the API endpoints. It includes:
+
+- ✅ Full CRUD operations
+- 📁 File upload support
+- 🔎 Validation testing
+
+### 🔗 Open Collection in Postman
+
+[👉 Click here to open in Postman](https://lively-meadow-325618.postman.co/workspace/public-workspace~377d1dec-5e4e-474a-b858-076b887751d2/collection/34339424-6c995578-4cdc-489e-9601-5690aaebd09b?action=share&source=copy-link&creator=34339424)
+
+> You can also import the collection manually using the link above if needed.
