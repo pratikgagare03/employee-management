@@ -221,5 +221,3 @@ redis-cli ping
 lsof -i :8081
 # Change port in .env file if needed
 ```
-
-# employee-management
