@@ -182,11 +182,17 @@ func (s *ExcelService) parseExcelContent(content []byte, filename string) ([]mod
 	// Read header row (first row)
 	headerRow := rows[0]
 
+	// Debug: Log actual headers found
+	log.Printf("Excel headers found: %v", headerRow)
+
 	// Validate headers
 	headerMap, err := s.validateAndMapHeaders(headerRow, expectedHeaders)
 	if err != nil {
 		return nil, nil, fmt.Errorf("header validation failed: %w", err)
 	}
+
+	// Debug: Log header mapping
+	log.Printf("Header mapping: %v", headerMap)
 
 	// Process data rows
 	for rowIndex := 1; rowIndex < len(rows); rowIndex++ {
@@ -220,14 +226,22 @@ func (s *ExcelService) validateAndMapHeaders(headerRow []string, expectedHeaders
 	for i, header := range headerRow {
 		cleanHeader := strings.TrimSpace(strings.ToLower(header))
 		headerMap[cleanHeader] = i
+		log.Printf("Header %d: '%s' -> cleaned: '%s'", i, header, cleanHeader)
 	}
 
 	// Check for required headers
+	missingHeaders := []string{}
 	for _, expectedHeader := range expectedHeaders {
-		if _, found := headerMap[expectedHeader]; !found && (expectedHeader == "first_name" || expectedHeader == "last_name" || expectedHeader == "email") {
-			// Required fields
-			return nil, fmt.Errorf("required header '%s' not found in Excel file", expectedHeader)
+		if _, found := headerMap[expectedHeader]; !found {
+			// Check if it's a required field
+			if expectedHeader == "first_name" || expectedHeader == "last_name" || expectedHeader == "email" {
+				missingHeaders = append(missingHeaders, expectedHeader)
+			}
 		}
+	}
+
+	if len(missingHeaders) > 0 {
+		return nil, fmt.Errorf("required headers not found: %v. Available headers: %v", missingHeaders, headerRow)
 	}
 
 	return headerMap, nil
@@ -257,6 +271,12 @@ func (s *ExcelService) parseEmployeeFromRow(row []string, headerMap map[string]i
 		Phone:       getCellValue("phone"),
 		Email:       getCellValue("email"),
 		Web:         getCellValue("web"),
+	}
+
+	// Debug: Log first few employees
+	if rowNumber <= 3 {
+		log.Printf("Row %d parsed employee: FirstName='%s', LastName='%s', Email='%s'",
+			rowNumber, employee.FirstName, employee.LastName, employee.Email)
 	}
 
 	// Validate employee using the service validator
@@ -297,14 +317,6 @@ func (s *ExcelService) isRowEmpty(row []string) bool {
 	return true
 }
 
-// min helper function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // GetProcessingResult retrieves processing result by ID
 func (s *ExcelService) GetProcessingResult(processingID string) (*models.ExcelUploadResponse, error) {
 	s.mu.RLock()
@@ -318,8 +330,8 @@ func (s *ExcelService) GetProcessingResult(processingID string) (*models.ExcelUp
 	return result, nil
 }
 
-// ValidateExcelStructure validates Excel file structure without processing data
-func (s *ExcelService) ValidateExcelStructure(file *multipart.FileHeader) (*models.ExcelUploadResponse, error) {
+// ValidateExcelStructure validates Excel file structure and format only (no database operations)
+func (s *ExcelService) ValidateExcelStructure(file *multipart.FileHeader) (*models.ExcelValidationResponse, error) {
 	// Basic file validation
 	if err := s.validateExcelFile(file); err != nil {
 		return nil, err
@@ -356,121 +368,39 @@ func (s *ExcelService) ValidateExcelStructure(file *multipart.FileHeader) (*mode
 	}
 
 	if len(rows) <= 1 {
-		return &models.ExcelUploadResponse{
-			Message:         "Excel file appears to be empty",
-			TotalRecords:    0,
-			ValidRecords:    0,
-			InvalidRecords:  0,
-			InsertedRecords: 0,
-			SkippedRecords:  0,
+		return &models.ExcelValidationResponse{
+			Message:      "Excel file appears to be empty",
+			TotalRecords: 0,
 		}, nil
 	}
 
-	// Check headers
+	// Check headers only
 	headerRow := rows[0]
-	// Use the same expected headers as upload process for consistency
 	expectedHeaders := []string{
 		"first_name", "last_name", "company_name", "address",
 		"city", "county", "postal", "phone", "email", "web",
 	}
-	headerMap, err := s.validateAndMapHeaders(headerRow, expectedHeaders)
+
+	log.Printf("Validating Excel headers: %v", headerRow)
+	_, err = s.validateAndMapHeaders(headerRow, expectedHeaders)
 	if err != nil {
 		return nil, err
 	}
 
-	// Perform detailed validation analysis
-	var potentialDuplicates []string
-	var validCount, invalidCount int
-	emailsSeen := make(map[string]bool)
-
-	log.Printf("Starting validation analysis for %d rows", len(rows)-1)
-
-	// Analyze each row for validation and duplicates
+	// Count data rows (simple validation - just check if rows exist and are not empty)
+	dataRowCount := 0
 	for rowIndex := 1; rowIndex < len(rows); rowIndex++ {
-		row := rows[rowIndex]
-
-		// Skip empty rows
-		if s.isRowEmpty(row) {
-			continue
-		}
-
-		// Create employee for validation (same as upload process)
-		employee := &models.Employee{
-			FirstName:   getCellValue(row, headerMap, "first_name"),
-			LastName:    getCellValue(row, headerMap, "last_name"),
-			CompanyName: getCellValue(row, headerMap, "company_name"),
-			Address:     getCellValue(row, headerMap, "address"),
-			City:        getCellValue(row, headerMap, "city"),
-			County:      getCellValue(row, headerMap, "county"),
-			Postal:      getCellValue(row, headerMap, "postal"),
-			Phone:       getCellValue(row, headerMap, "phone"),
-			Email:       getCellValue(row, headerMap, "email"),
-			Web:         getCellValue(row, headerMap, "web"),
-		}
-
-		// Basic field validation (same logic as upload)
-		fieldErrors := s.employeeService.ValidateEmployeeData(employee)
-
-		// Check for database duplicates (same logic as upload)
-		if employee.Email != "" {
-			existingEmployee, err := s.employeeService.repo.GetEmployeeByEmail(employee.Email)
-			if err == nil && existingEmployee != nil {
-				fieldErrors = append(fieldErrors, models.ValidationError{
-					Field:   fmt.Sprintf("Row %d - Email", rowIndex+1),
-					Message: fmt.Sprintf("Email '%s' already exists in database", employee.Email),
-				})
-				// Track this email as a duplicate
-				if !emailsSeen[employee.Email] {
-					potentialDuplicates = append(potentialDuplicates, employee.Email)
-					emailsSeen[employee.Email] = true
-				}
-			}
-		}
-
-		// Count valid vs invalid (same logic as upload)
-		if len(fieldErrors) > 0 {
-			invalidCount++
-		} else {
-			validCount++
+		if !s.isRowEmpty(rows[rowIndex]) {
+			dataRowCount++
 		}
 	}
 
-	log.Printf("Validation complete: valid=%d, invalid=%d, duplicates=%d", validCount, invalidCount, len(potentialDuplicates))
+	message := fmt.Sprintf("Excel validation successful. File structure is valid with %d data rows and correct headers", dataRowCount)
 
-	// Prepare detailed response
-	totalRows := len(rows) - 1
-	duplicateCount := len(potentialDuplicates)
+	log.Printf("Excel format validation complete: %d data rows found", dataRowCount)
 
-	message := fmt.Sprintf("Excel validation complete. Found %d data rows: %d valid, %d invalid",
-		totalRows, validCount, invalidCount)
-
-	if duplicateCount > 0 {
-		message += fmt.Sprintf(", %d potential duplicates detected", duplicateCount)
-	}
-
-	// Limit duplicate emails shown
-	maxDuplicatesToShow := 10
-	duplicateEmailsToShow := potentialDuplicates
-	if len(potentialDuplicates) > maxDuplicatesToShow {
-		duplicateEmailsToShow = potentialDuplicates[:maxDuplicatesToShow]
-		message += fmt.Sprintf(" (showing first %d)", maxDuplicatesToShow)
-	}
-
-	return &models.ExcelUploadResponse{
-		Message:         message,
-		TotalRecords:    totalRows,
-		ValidRecords:    validCount,
-		InvalidRecords:  invalidCount,
-		InsertedRecords: 0, // Not applicable for validation
-		SkippedRecords:  duplicateCount,
-		DuplicateEmails: duplicateEmailsToShow,
+	return &models.ExcelValidationResponse{
+		Message:      message,
+		TotalRecords: dataRowCount,
 	}, nil
-}
-
-// Helper function to get cell value safely
-func getCellValue(row []string, headerMap map[string]int, columnName string) string {
-	if colIndex, exists := headerMap[columnName]; exists && colIndex < len(row) {
-		return strings.TrimSpace(row[colIndex])
-	}
-	return ""
 }

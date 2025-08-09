@@ -4,6 +4,12 @@ import (
 	"time"
 )
 
+// ExcelValidationResponse represents the response for Excel format validation only
+type ExcelValidationResponse struct {
+	Message      string `json:"message"`
+	TotalRecords int    `json:"total_records"`
+}
+
 // Employee represents the structure of employee data from Excel file
 type Employee struct {
 	ID          int       `json:"id" gorm:"primaryKey;autoIncrement"`
