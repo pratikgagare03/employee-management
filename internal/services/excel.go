@@ -41,7 +41,6 @@ type ExcelService struct {
 	employeeService *EmployeeService
 	config          *config.Config
 	mu              sync.RWMutex
-	processResults  map[string]*models.ExcelUploadResponse
 	jobs            map[string]*JobResult
 
 	// Worker pool for concurrent job processing
@@ -49,9 +48,7 @@ type ExcelService struct {
 	workerPool chan chan *JobRequest
 	maxWorkers int
 	quit       chan bool
-}
-
-// JobRequest represents a job to be processed
+} // JobRequest represents a job to be processed
 type JobRequest struct {
 	JobID string
 	File  *multipart.FileHeader
@@ -74,13 +71,12 @@ func NewExcelService(employeeService *EmployeeService, cfg *config.Config) *Exce
 		maxWorkers = cfg.Server.MaxWorkers
 	}
 
-	// Queue size should be 10-20x the worker count
-	queueSize := maxWorkers * 20
+	// Reasonable queue size
+	queueSize := maxWorkers * 10 // Reduced from 20x to 10x
 
 	service := &ExcelService{
 		employeeService: employeeService,
 		config:          cfg,
-		processResults:  make(map[string]*models.ExcelUploadResponse),
 		jobs:            make(map[string]*JobResult),
 		jobQueue:        make(chan *JobRequest, queueSize),
 		workerPool:      make(chan chan *JobRequest, maxWorkers),
@@ -88,15 +84,13 @@ func NewExcelService(employeeService *EmployeeService, cfg *config.Config) *Exce
 		quit:            make(chan bool),
 	}
 
-	log.Printf("Starting Excel processing service with %d workers and queue size %d", maxWorkers, queueSize)
+	log.Printf("Excel service: %d workers, queue size %d", maxWorkers, queueSize)
 
 	// Start worker pool
 	service.startWorkerPool()
 
 	return service
-}
-
-// startWorkerPool initializes and starts the worker pool
+} // startWorkerPool initializes and starts the worker pool
 func (s *ExcelService) startWorkerPool() {
 	// Create workers
 	for i := 0; i < s.maxWorkers; i++ {
@@ -198,7 +192,7 @@ func (s *ExcelService) StartAsyncExcelProcessing(file *multipart.FileHeader) (st
 
 	select {
 	case s.jobQueue <- jobRequest:
-		log.Printf("Job %s queued for processing", jobID)
+		// Job queued successfully
 	default:
 		// Queue is full
 		s.updateJobStatus(jobID, JobStatusFailed, nil, "job queue is full, please try again later")
@@ -388,17 +382,11 @@ func (s *ExcelService) parseExcelContent(content []byte, filename string) ([]mod
 	// Read header row (first row)
 	headerRow := rows[0]
 
-	// Debug: Log actual headers found
-	log.Printf("Excel headers found: %v", headerRow)
-
 	// Validate headers
 	headerMap, err := s.validateAndMapHeaders(headerRow, expectedHeaders)
 	if err != nil {
 		return nil, nil, fmt.Errorf("header validation failed: %w", err)
 	}
-
-	// Debug: Log header mapping
-	log.Printf("Header mapping: %v", headerMap)
 
 	// Process data rows
 	for rowIndex := 1; rowIndex < len(rows); rowIndex++ {
@@ -432,7 +420,6 @@ func (s *ExcelService) validateAndMapHeaders(headerRow []string, expectedHeaders
 	for i, header := range headerRow {
 		cleanHeader := strings.TrimSpace(strings.ToLower(header))
 		headerMap[cleanHeader] = i
-		log.Printf("Header %d: '%s' -> cleaned: '%s'", i, header, cleanHeader)
 	}
 
 	// Check for required headers
@@ -447,7 +434,7 @@ func (s *ExcelService) validateAndMapHeaders(headerRow []string, expectedHeaders
 	}
 
 	if len(missingHeaders) > 0 {
-		return nil, fmt.Errorf("required headers not found: %v. Available headers: %v", missingHeaders, headerRow)
+		return nil, fmt.Errorf("required headers not found: %v", missingHeaders)
 	}
 
 	return headerMap, nil
@@ -479,12 +466,6 @@ func (s *ExcelService) parseEmployeeFromRow(row []string, headerMap map[string]i
 		Web:         getCellValue("web"),
 	}
 
-	// Debug: Log first few employees
-	if rowNumber <= 3 {
-		log.Printf("Row %d parsed employee: FirstName='%s', LastName='%s', Email='%s'",
-			rowNumber, employee.FirstName, employee.LastName, employee.Email)
-	}
-
 	// Validate employee using the service validator
 	fieldErrors := s.employeeService.ValidateEmployeeData(employee)
 	for _, fieldError := range fieldErrors {
@@ -513,19 +494,6 @@ func (s *ExcelService) isRowEmpty(row []string) bool {
 		}
 	}
 	return true
-}
-
-// GetProcessingResult retrieves processing result by ID
-func (s *ExcelService) GetProcessingResult(processingID string) (*models.ExcelUploadResponse, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	result, exists := s.processResults[processingID]
-	if !exists {
-		return nil, fmt.Errorf("processing result with ID %s not found", processingID)
-	}
-
-	return result, nil
 }
 
 // ValidateExcelStructure validates Excel file structure and format only (no database operations)
@@ -579,7 +547,6 @@ func (s *ExcelService) ValidateExcelStructure(file *multipart.FileHeader) (*mode
 		"city", "county", "postal", "phone", "email", "web",
 	}
 
-	log.Printf("Validating Excel headers: %v", headerRow)
 	_, err = s.validateAndMapHeaders(headerRow, expectedHeaders)
 	if err != nil {
 		return nil, err
@@ -594,8 +561,6 @@ func (s *ExcelService) ValidateExcelStructure(file *multipart.FileHeader) (*mode
 	}
 
 	message := fmt.Sprintf("Excel validation successful. File structure is valid with %d data rows and correct headers", dataRowCount)
-
-	log.Printf("Excel format validation complete: %d data rows found", dataRowCount)
 
 	return &models.ExcelValidationResponse{
 		Message:      message,

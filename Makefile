@@ -10,7 +10,7 @@ BINARY_UNIX=$(BINARY_NAME)_unix
 
 # Build the application
 build:
-	$(GOBUILD) -o $(BINARY_NAME) -v ./cmd/main.go
+	$(GOBUILD) -o bin/$(BINARY_NAME) -v ./cmd/main.go
 
 # Run the application
 run:
@@ -21,6 +21,7 @@ clean:
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
 	rm -f $(BINARY_UNIX)
+	rm -f bin/$(BINARY_NAME)
 
 # Run tests
 test:
