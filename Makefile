@@ -44,6 +44,25 @@ install:
 fmt:
 	$(GOCMD) fmt ./...
 
+# Docker commands
+docker-build:
+	docker build -t employee-management:latest .
+
+docker-run:
+	docker run -p 8081:8081 --env-file .env.docker employee-management:latest
+
+docker-compose-up:
+	docker-compose up --build -d
+
+docker-compose-down:
+	docker-compose down -v
+
+docker-compose-logs:
+	docker-compose logs -f
+
+docker-clean:
+	docker-compose down -v --rmi all --remove-orphans
+
 # Help
 help:
 	@echo "Available commands:"
